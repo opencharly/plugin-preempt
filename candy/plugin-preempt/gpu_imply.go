@@ -25,10 +25,12 @@ import (
 // BEFORE calling AcquireShared, so "arbiter policy" (early-return-on-empty) lives entirely in the
 // arbiter, not the deleted in-core proxy.
 //
-// IsGroup/IsPodMember are pre-derived CORE-SIDE (spec.FleetNode.IsGroup() + the former in-core
-// isPodMember — the core-side copies are DELETED, K-wave 2 cone CONTESTED; the surviving
-// fleet.IsContainerVenue predicate the wire projection uses stays); this file receives them as
-// plain booleans on the wire, never re-derives them from a FleetNode. detectGPU below reaches
+// IsGroup/IsPodMember are pre-derived CORE-SIDE (the former in-core isPodMember — the core-side
+// copies are DELETED, K-wave 2 cone CONTESTED; the surviving fleet.IsContainerVenue predicate the
+// wire projection uses stays; is_group is derived POSITIONALLY since the group:-kind removal —
+// spec #105: true means a targetless claimant root carrying deploy-level member siblings, the
+// post-migrate spelling of the former group shape); this file receives them as plain booleans on
+// the wire, never re-derives them from a Deploy node. detectGPU below reaches
 // the SAME candy/plugin-gpu detection primitive charly-core's own DetectGPU (gpu_shim.go) calls,
 // via the EXISTING plugin-to-plugin InvokeProvider(ClassVerb,"gpu",...) peer-dispatch pattern
 // pluginSwitchMode (holder_dispatch.go) already proves live in this exact package — no new seam.
@@ -67,8 +69,9 @@ func securityDevicesListNvidia(devices []string) bool {
 // implies consumption ONLY for a POD deploy — a pod auto-gets the nvidia GPU as a CDI device on a
 // GPU host (the pod config-setup emits `--device nvidia.com/gpu=all`). A local/host/vm command
 // deploy gets NO container device, so on a GPU workstation it consumes the GPU only when it
-// EXPLICITLY lists an nvidia device in security.devices. A GROUP deploy root carries no workload
-// container of its own, so it never auto-consumes the GPU either.
+// EXPLICITLY lists an nvidia device in security.devices. A targetless root carrying deploy-level
+// member siblings (the post-migrate spelling of the former group deploy root — the workload lives
+// in the members) has no workload container of its own, so it never auto-consumes the GPU either.
 func nodeConsumesNvidiaGPU(ctx context.Context, exec *sdk.Executor, isGroup, isPodMember bool, securityDevices []string) bool {
 	if isGroup {
 		return false

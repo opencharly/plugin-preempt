@@ -95,15 +95,16 @@ func TestImpliedSharedToken_LocalDeployNotImpliedOnGPUHost(t *testing.T) {
 	}
 }
 
-// I4c. A GROUP deploy root (no workload container, only sibling members) on a GPU host must NOT
-// imply the nvidia-gpu token — the pod config-setup emits no CDI device for a group. Regression:
-// check-preempt-live-pod's group root wrongly held an implied nvidia-gpu lease, masking the
+// I4c. A targetless root carrying deploy-level member siblings (no workload container of its
+// own — the post-migrate spelling of the former GROUP deploy root) on a GPU host must NOT imply
+// the nvidia-gpu token — the pod config-setup emits no CDI device for it. Regression:
+// check-preempt-live-pod's former group root wrongly held an implied nvidia-gpu lease, masking the
 // members' authored test-lock preemption.
 func TestImpliedSharedToken_GroupRootNotImpliedOnGPUHost(t *testing.T) {
 	withDetectGPU(t, true) // host HAS a GPU
 	res := rawGpuResources()
-	// isGroup=true wins regardless of isPodMember (mirrors node.IsGroup() short-circuiting
-	// nodeConsumesNvidiaGPU before the isPodMember branch runs).
+	// isGroup=true wins regardless of isPodMember (mirrors the core-side positional derivation
+	// short-circuiting nodeConsumesNvidiaGPU before the isPodMember branch runs).
 	if tok := impliedSharedToken(context.Background(), nil, true, true, nil, res); tok != "" {
 		t.Fatalf("a group root on a GPU host must NOT imply the nvidia-gpu token, got %q", tok)
 	}
