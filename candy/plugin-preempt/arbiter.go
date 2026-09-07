@@ -187,29 +187,29 @@ func resolvedProject(ctx context.Context, exec *sdk.Executor) (*spec.ResolvedPro
 }
 
 // resolvedDeployTree is the arbiter's project deploy tree — the resolved-project envelope's
-// Deploy field (rp.Deploy, itself uf.Fleet projected verbatim) merged with the per-host
+// Deploy field (rp.Deploy, itself uf.Deploy projected verbatim) merged with the per-host
 // deploy-config overlay, exactly as the former core-only gatherDeployNodes merged them. Errors
 // degrade to an empty tree (never fail the caller) — mirroring the former LoadUnified(".")
 // graceful-degrade (project-less invocations, e.g. a bare `charly preempt status`, are legal).
 //
 // #55 coneC-dsh β2+δ seam-death: MergedDeployTree now takes a reader (placement-invariant —
-// loaderkit.LoadHostFleetConfigViaExecutor), so the compiled-in arbiter no longer relies on the
+// loaderkit.LoadHostDeployConfigViaExecutor), so the compiled-in arbiter no longer relies on the
 // DeployStateHost host seam (deleted in δ); the per-host overlay loads the SAME way plugin-fleet's
 // writes do, works identically compiled-in or out-of-process.
-func resolvedDeployTree(ctx context.Context, exec *sdk.Executor, context string) map[string]spec.FleetNode {
+func resolvedDeployTree(ctx context.Context, exec *sdk.Executor, context string) map[string]spec.DeployNode {
 	rp, err := resolvedProject(ctx, exec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "preempt: resolved-project (%s): %v\n", context, err)
 		rp = &spec.ResolvedProject{}
 	}
-	project := make(map[string]spec.FleetNode, len(rp.Deploy))
+	project := make(map[string]spec.DeployNode, len(rp.Deploy))
 	for name, node := range rp.Deploy {
 		if node != nil {
 			project[name] = *node
 		}
 	}
-	return deploykit.MergedDeployTree(project, context, func() (*deploykit.FleetConfig, error) {
-		return loaderkit.LoadHostFleetConfigViaExecutor(ctx, exec)
+	return deploykit.MergedDeployTree(project, context, func() (*deploykit.DeployConfig, error) {
+		return loaderkit.LoadHostDeployConfigViaExecutor(ctx, exec)
 	})
 }
 
