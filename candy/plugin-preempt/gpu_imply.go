@@ -26,7 +26,7 @@ import (
 // arbiter, not the deleted in-core proxy.
 //
 // IsGroup/IsPodMember are pre-derived CORE-SIDE (the former in-core isPodMember — the core-side
-// copies are DELETED, K-wave 2 cone CONTESTED; the surviving fleet.IsContainerVenue predicate the
+// copies are DELETED, K-wave 2 cone CONTESTED; the surviving deploy.IsContainerVenue predicate the
 // wire projection uses stays; is_group is derived POSITIONALLY since the group:-kind removal —
 // spec #105: true means a targetless claimant root carrying deploy-level member siblings, the
 // post-migrate spelling of the former group shape); this file receives them as plain booleans on
@@ -54,7 +54,7 @@ func nvidiaTokenFromResources(resources map[string]*spec.ResolvedResource) strin
 // securityDevicesListNvidia reports whether a security.devices list explicitly references the
 // NVIDIA GPU (the CDI name or a /dev/nvidia* node). Port of the former
 // nodeSecurityListsNvidiaDevice, taking the raw device list directly (the wire projection) rather
-// than a spec.FleetNode.
+// than a spec.DeployNode.
 func securityDevicesListNvidia(devices []string) bool {
 	for _, d := range devices {
 		if strings.Contains(d, "nvidia.com/gpu") || strings.HasPrefix(d, "/dev/nvidia") {
