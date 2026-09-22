@@ -57,6 +57,14 @@ check-preempt-fixture:
             fedora base composing the local keepalive layer.
         candy:
             - check-preempt-keepalive
+        plan:
+            - check: the fixture image carries the supervisord init the keepalive service runs under
+              id: fixture-supervisord-present
+              context:
+                - build
+              file:
+                file: /usr/bin/supervisord
+                exists: true
 
 check-preempt-arbiter-pod:
     pod:
@@ -109,14 +117,14 @@ check-preempt-arbiter-pod:
 # `preempt-holder` member (…-h…) is config+start+ready BEFORE the `preempt-taker`
 # member (…-t…). When the taker's `charly start` then runs
 # acquireResourceForClaimant, the arbiter finds the RUNNING holder
-# (preemptible.holds:[arbiter-test-lock] ∩ requires_exclusive:[arbiter-test-lock]) and gracefully
+# (preemptible.holds:[live-test-lock] ∩ requires_exclusive:[live-test-lock]) and gracefully
 # stops it, recording a persistent lease. The order is the member SORT, not a timing
 # race — robust by construction.
 #
 # This works ONLY because persistBedDeployOverrides seeds a member's preemptible /
 # requires_exclusive into the per-host overlay, so the member's `charly start`
 # reloads them and drives the arbiter (the group-member arbiter persistence gap the
-# C9 cutover surfaced, now fixed). ZERO GPU: arbiter-test-lock is a SELECTOR-LESS token (no
+# C9 cutover surfaced, now fixed). ZERO GPU: live-test-lock is a SELECTOR-LESS token (no
 # resource: gpu def), so applyMode SKIPS the device flip. On teardown the taker's
 # `charly remove` → releaseResourceClaim → restoreHolders restarts the holder.
 # =============================================================================
