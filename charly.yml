@@ -1,10 +1,18 @@
 # Makes this plugin repo a PROJECT so its own candy is actually gated.
 #
-# This file also owns the resource-arbiter R10 beds (relocated from
-# distro-fedora/charly), which test THIS plugin's verb:arbiter + command:preempt.
-# A bed's own minimal fixture box (`check-preempt-fixture`) is declared locally so
-# the repo is self-contained (the plugin-mise bed-image pattern) — the preempt beds
-# only need a STEADY-STATE pod, which the keepalive candy provides.
+# Without a root charly.yml the repo is "project-less": charly scans NO candies at all,
+# so `charly box validate` at the repo root exits 0 on ANY manifest, including one with
+# a malformed `plugin.providers` entry. The stock candy CI step asserted nothing.
+# See opencharly/charly#459.
+#
+# Declaring discover: is the whole fix: the candy is scanned, the CUE schema gate
+# applies, and the STOCK `charly box validate` step starts working with no workflow
+# change. This file also declares the R10 witness beds: the check-preempt-local
+# command bed (below) and the resource-arbiter beds relocated from distro-fedora
+# (which test THIS plugin's verb:arbiter + command:preempt; their own minimal
+# fixture box `check-preempt-fixture` is declared locally so the repo is
+# self-contained — the plugin-mise bed-image pattern — since the preempt beds only
+# need a STEADY-STATE pod, which the keepalive candy provides).
 version: 2026.249.2125
 defaults:
     platform:
@@ -294,3 +302,31 @@ check-preempt-vm-live:
                     in_container: false
                   stdout:
                     - contains: preempt-vm-holder
+check-preempt-app:
+    local:
+        description: |-
+            Minimal kind:local template for the check-preempt-local bed — composes the
+            command-only candy/plugin-preempt (no install content) so the bed exercises the
+            externalized `charly preempt` CLI host-side.
+        candy:
+            - plugin-preempt
+check-preempt-local:
+    local:
+        from: check-preempt-app
+        host: local
+        disposable: true
+        lifecycle: dev
+        description: >-
+            R10 witness that the externalized `charly preempt` COMMAND (candy/plugin-preempt, command:preempt, COMPILED-IN) resolves and runs host-side. A disposable kind:local deploy on host: local runs `charly preempt status`: the command exits 0 and prints the plugin-owned lease status — the "No active preemption leases." line on a clean host, or the plugin's CLAIMANT/…/STATE lease table when sibling beds hold transient leases — naming no lease owned by THIS bed (bed-owned scoping: a concurrent sibling bed's transient lease is legitimate under a parallel roster). The step asserts that plugin-owned output, so it fails if `preempt status` is served by anything other than candy/plugin-preempt's own CLI + lease-table renderer; it proves the command's plugin-side grammar + formatting run end-to-end on a fresh rebuild. It does NOT by itself discriminate the INTERNAL dispatch path: `status` exits 0 whether the compiled-in command reaches its peer verb:arbiter directly via InvokeProvider or through a hidden forward, so the peer-dispatch claim rests on the Go e2e (charly core's TestArbiterReleaseDispatch_SurvivesAndSurfaces + this repo's TestArbiter_ReconcileStrandedRestores) and the end-to-end check-preempt-arbiter-pod bed, not on this step. The live `restore`/reconcile step is intentionally omitted (it reads the operator's global lease ledger, so an eval bed must not run it).
+        plan:
+            - check: command=charly preempt status exits 0 and prints candy/plugin-preempt's own lease status — the "No active preemption leases." line, or its CLAIMANT/…/STATE lease table under a parallel roster — naming no lease owned by THIS bed (bed-owned scoping, because a concurrent sibling bed's transient lease is legitimate; a global no-leases assertion can never hold)
+              id: preempt-status-runs
+              exit_status: 0
+              stdout:
+                - matches: 'No active preemption leases\.|^CLAIMANT[[:space:]]+TOKENS'
+                - not_matches: '(^|[[:space:]])check-preempt-local([[:space:]]|$)'
+              context:
+                - runtime
+              command:
+                command: ${CHARLY_BIN} preempt status
+                in_container: false

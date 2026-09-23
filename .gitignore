@@ -11,4 +11,6 @@ image/
 # Editor scratch
 *.swp
 *~
-*.bak*
+# Migration rollback backups (charly migrate writes <file>.bak.<unix-ts>)
+*.bak
+*.bak.*
