@@ -7,12 +7,301 @@
 #
 # Declaring discover: is the whole fix: the candy is scanned, the CUE schema gate
 # applies, and the STOCK `charly box validate` step starts working with no workflow
-# change. This file also declares the R10 witness bed (below).
+# change. This file also declares the R10 witness beds: the check-preempt-local
+# command bed (below) and the resource-arbiter beds relocated from distro-fedora
+# (which test THIS plugin's verb:arbiter + command:preempt; their own minimal
+# fixture box `check-preempt-fixture` is declared locally so the repo is
+# self-contained — the plugin-mise bed-image pattern — since the preempt beds only
+# need a STEADY-STATE pod, which the keepalive candy provides).
 version: 2026.249.2125
+defaults:
+    platform:
+        - linux/amd64
+    tag: auto
+    registry: ghcr.io/opencharly
+    build:
+        - rpm
+    merge:
+        auto: false
+        max_mb: 128
 discover:
     - path: candy
       recursive: true
 
+# check-preempt-fixture — the beds' own minimal steady-state pod fixture (a LOCAL
+# layer + a thin image, the plugin-mise bed-image pattern). The preempt beds need
+# only a live pod to hold a synthetic selector-less lock, so the fixture composes
+# the CURRENT layer-supervisord (pinned directly — pod-check-keepalive's chain
+# resolves a stale supervisord candy whose staged tree lacks templates/) and
+# supplies a keepalive program inline.
+check-preempt-keepalive:
+    candy:
+        version: 2026.265.0000
+        description: |-
+            Local keepalive layer for the arbiter bed fixture: pins the current
+            layer-supervisord and runs a `sleep infinity` program so a service-less
+            pod assembles /etc/supervisord.conf and reaches steady-state.
+        candy:
+            - '@github.com/opencharly/layer-supervisord:v2026.240.0121'
+        service:
+            - name: keepalive
+              exec: /usr/bin/sleep infinity
+              restart: always
+        plan:
+            - check: the assembled supervisord config registers the keepalive program
+              file:
+                file: /etc/supervisord.conf
+                contains:
+                    - "[program:keepalive]"
+
+check-preempt-fixture:
+    candy:
+        base: quay.io/fedora/fedora:43
+        distro:
+            - fedora:43
+            - fedora
+        description: |-
+            Minimal steady-state pod fixture for the resource-arbiter R10 beds: a
+            fedora base composing the local keepalive layer.
+        candy:
+            - check-preempt-keepalive
+        plan:
+            - check: the fixture image carries the supervisord init the keepalive service runs under
+              id: fixture-supervisord-present
+              context:
+                - build
+              file:
+                file: /usr/bin/supervisord
+                exists: true
+
+check-preempt-arbiter-pod:
+    pod:
+        image: check-preempt-fixture
+        disposable: true
+        lifecycle: dev
+        description: >-
+            R10 witness of the externalized resource ARBITER DISPATCH (candy/plugin-preempt verb:arbiter, cutover C9). THIS bed is the exclusive CLAIMANT: it declares requires_exclusive:[arbiter-test-lock] (a SYNTHETIC selector-less token, NO resource: gpu selector), so the check-runner's designed bed-arbiter path fires AcquireExclusive through the compiled-in verb:arbiter over the in-proc resolved-project envelope (Executor.HostBuild("resolved-project")) BEFORE bring-up — calling the gather + resources host seams, persisting a transient lease held for the whole run, with applyMode SKIPPING the selector-less token (ZERO GPU). arbiter-claim-recorded asserts `charly preempt status` surfaces the lease (the externalized-dispatch + reverse-channel + persistence proof); driver-switch-dryrun proves the externalized GPU driver-switch dispatch (candy/plugin-gpu, C9 1B) hardware-free via `charly vm gpu plan`. LIVE preemption of a RUNNING holder is proven by the sibling check-preempt-live-pod group bed (and the seam-faked unit suite), not here (the runner pre-acquires the bed-root lease before any holder could run).
+        requires_exclusive:
+            - arbiter-test-lock
+        plan:
+            - check: the externalized arbiter recorded THIS bed's arbiter-test-lock lease — AcquireExclusive dispatched through the compiled-in verb:arbiter + the resolved-project envelope, and the lease surfaces via `charly preempt status`
+              id: arbiter-claim-recorded
+              context:
+                - runtime
+              eventually: 30s
+              retry_interval: 3s
+              command:
+                command: "${CHARLY_BIN} preempt status"
+                in_container: false
+              stdout:
+                - contains: check-preempt-arbiter-pod
+                - contains: arbiter-test-lock
+            - check: the externalized GPU driver-switch (candy/plugin-gpu, C9 1B) dispatches hardware-free — `charly vm gpu plan vfio` returns the exact vfio-pci rebind commands WITHOUT touching sysfs
+              id: driver-switch-dryrun
+              context:
+                - runtime
+              command:
+                command: "${CHARLY_BIN} vm gpu plan vfio"
+                in_container: false
+              stdout:
+                - contains: vfio-pci
+                - contains: driver_override
+# =============================================================================
+# check-preempt-live-pod — LIVE preemption end-to-end: a preemptible HOLDER member
+# actually STOPPED by a requires_exclusive CLAIMANT member. This is the coverage
+# the bed-root arbiter bed (check-preempt-arbiter-pod) CANNOT give: that bed's lease
+# is pre-acquired by the runner as its FIRST action, before any holder runs, so it
+# never stops one. Here the claimant is a MEMBER whose OWN `charly start` fires the
+# acquire AFTER the holder is already up — the real holdersToStop → stopHolders →
+# lease → restoreHolders round-trip.
+#
+# Shape (post-group schema): a BENIGN check-preempt-fixture bed root + two pod members. The holder
+# stays a MEMBER — the Cutover-C unroll's mechanical promotion of the sorted-first
+# member to bed root made the PREEMPTED holder the root, and check-live's pod
+# root-liveness gate then hard-failed (plugin-pod resolveServiceInit: "container
+# charly-check-preempt-live-pod is not running" — the bed's own preemption had
+# legitimately stopped it). The benign root keeps the runner's pre-acquire a no-op
+# (the root declares no requires_exclusive). ORDERING (no sleeps, R4): the
+# `preempt-holder` member (…-h…) is config+start+ready BEFORE the `preempt-taker`
+# member (…-t…). When the taker's `charly start` then runs
+# acquireResourceForClaimant, the arbiter finds the RUNNING holder
+# (preemptible.holds:[live-test-lock] ∩ requires_exclusive:[live-test-lock]) and gracefully
+# stops it, recording a persistent lease. The order is the member SORT, not a timing
+# race — robust by construction.
+#
+# This works ONLY because persistBedDeployOverrides seeds a member's preemptible /
+# requires_exclusive into the per-host overlay, so the member's `charly start`
+# reloads them and drives the arbiter (the group-member arbiter persistence gap the
+# C9 cutover surfaced, now fixed). ZERO GPU: live-test-lock is a SELECTOR-LESS token (no
+# resource: gpu def), so applyMode SKIPS the device flip. On teardown the taker's
+# `charly remove` → releaseResourceClaim → restoreHolders restarts the holder.
+# =============================================================================
+
+check-preempt-live-pod:
+    pod:
+        image: check-preempt-fixture
+        disposable: true
+        lifecycle: dev
+        description: >-
+            Sole R10 witness of LIVE resource preemption end-to-end — a preemptible HOLDER pod member actually gracefully STOPPED by a requires_exclusive CLAIMANT pod member (the coverage check-preempt-arbiter-pod's bed-root claimant cannot give: its lease is pre-acquired before any holder runs). A BENIGN check-preempt-fixture bed-root witness carries no arbiter fields — the root must survive check-live's pod root-liveness gate, which the unroll's first cut failed by promoting the preempted holder to root (the holder stays a MEMBER); the preemptible HOLDER preempt-holder check-preempt-fixture member (preemptible: holds:[live-test-lock]); the CLAIMANT preempt-taker check-preempt-fixture member (requires_exclusive:[live-test-lock]); sortedMemberKeys brings preempt-holder up FIRST, then preempt-taker whose own `charly start` fires AcquireExclusive → the arbiter finds the RUNNING holder → stopHolders gracefully stops it → records a persistent lease. ZERO GPU (live-test-lock is selector-less, applyMode skips the flip); no sleeps (ordering is the member sort). preemptor-lease-recorded asserts `charly preempt status` surfaces the taker's live-test-lock lease; preemptor-stopped-the-holder asserts the holder is recorded as a preempted (stopped) holder of that lease. Proves MEMBER-vs-MEMBER arbiter holder/claimant end-to-end (persistBedDeployOverrides seeds member arbiter fields); on teardown the taker's `charly remove` → releaseResourceClaim → restoreHolders restarts the holder.
+    preempt-holder:
+        pod:
+            image: check-preempt-fixture
+            preemptible:
+                holds:
+                    - live-test-lock
+                restore: always
+    preempt-taker:
+        pod:
+            image: check-preempt-fixture
+            requires_exclusive:
+                - live-test-lock
+            plan:
+                - check: the CLAIMANT member's exclusive live-test-lock lease was recorded — preempt-taker's own `charly start` (a group member, NOT the bed root) fired AcquireExclusive through the externalized verb:arbiter, and the persistent lease surfaces via `charly preempt status`
+                  id: preemptor-lease-recorded
+                  context:
+                    - runtime
+                  eventually: 30s
+                  retry_interval: 3s
+                  command:
+                    command: "${CHARLY_BIN} preempt status"
+                    in_container: false
+                  stdout:
+                    - contains: preempt-taker
+                    - contains: live-test-lock
+                - check: the RUNNING preemptible holder was actually preempted — the arbiter recorded preempt-holder as a stopped holder under the taker's lease (holdersToStop → stopHolders on a live pod), visible in the PREEMPTED HOLDERS column of `charly preempt status`
+                  id: preemptor-stopped-the-holder
+                  context:
+                    - runtime
+                  eventually: 30s
+                  retry_interval: 3s
+                  command:
+                    command: "${CHARLY_BIN} preempt status"
+                    in_container: false
+                  stdout:
+                    - contains: preempt-holder
+# =============================================================================
+# check-preempt-vm-live — LIVE preemption on a VM-VENUE holder: the FLOOR-SLIM-proper
+# Unit-8B witness. check-preempt-live-pod already proves the pod-venue stop/start round
+# trip (deploykit.StopPodService/StartPodService); this bed proves the SIBLING VM-venue
+# branch of the SAME moved code (candy/plugin-preempt/holder_dispatch.go's
+# pluginHolderStop/pluginHolderStart, addr.Vm != "" path) — stopVMPlugin/startVMPlugin
+# dispatched via sdk.Executor.InvokeProvider(ClassVerb, "libvirt", …) (never the
+# resolved-project envelope leg — that leg (K1-unblock wave 1) covers only the
+# gather/resources seams and is unrelated to this stop/start dispatch leg), and the
+# SAME kit.ReadinessProvider()-gated wait-until-stopped
+# poll the pod path uses.
+#
+# Shape (post-group schema): a BENIGN check-preempt-fixture bed root + two members. The vm: HOLDER
+# stays a MEMBER (preempt-vm-holder, `from: web-vm` — this repo's own local kind:vm
+# template, declared below) — the unroll's first cut
+# promoted the holder to bed root and the taker's re-bring-up acquire STOPPED that root
+# VM, hanging check-live-rebuild against it; and
+# a pod: CLAIMANT member (preempt-vm-taker). ORDERING (no sleeps, R4): the holder member
+# is brought up FIRST (…h… < …t…), then
+# preempt-vm-taker; the taker's own `charly start` fires acquireResourceForClaimant
+# → the arbiter finds the RUNNING vm holder (preemptible.holds:[vm-test-lock] ∩
+# requires_exclusive:[vm-test-lock]) → stopHolders → pluginHolderStop gracefully shuts
+# the VM down (libvirt) and polls until it is actually stopped → records a persistent
+# lease. A DISTINCT token (vm-test-lock) so this VM-venue bed owns its OWN synthetic
+# lock, never contending with the pod-venue beds (check-preempt-arbiter-pod's
+# arbiter-test-lock, check-preempt-live-pod's live-test-lock) — each bed's exclusive
+# claim is scoped to a token no sibling claims, so a concurrent roster run has no
+# cross-bed contention on a shared resource. ZERO GPU: vm-test-lock is a SELECTOR-LESS token (no resource:
+# gpu def), so applyMode SKIPS the device flip on every host, GPU-equipped or not — the
+# GPU switchMode/ensureCDI InvokeProvider dispatch itself stays code-verified only (the
+# class-agnostic mechanism proven live for ClassBuilder in Unit-8A; no disposable bed in
+# this ecosystem can allocate a real GPU token without one physically present). On
+# teardown the taker's `charly remove` → releaseResourceClaim → restoreHolders →
+# pluginHolderStart restarts the VM (or, mirroring check-preempt-live-pod's own
+# rebuild-cycle coverage, no-ops via the departed-holder guard if it was already torn
+# down in the interim).
+# =============================================================================
+
+web-vm:
+    vm:
+        source:
+            kind: cloud_image
+            distro: fedora
+            url: https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2
+            checksum:
+                type: sha256
+                value: 846574c8a97cd2d8dc1f231062d73107cc85cbbbda56335e264a46e3a6c8ab2f
+            base_user: fedora
+        disk_size: 6G
+        ram: 2G
+        cpu: 2
+        firmware: bios
+        backend: libvirt
+        network:
+            mode: user
+        ssh:
+            user: fedora
+            port_auto: true
+            key_source: generate
+        cloud_init:
+            package:
+                - qemu-guest-agent
+            runcmd:
+                - "systemctl enable --now qemu-guest-agent"
+        libvirt:
+            devices:
+                channels:
+                    - type: unix
+                      name: org.qemu.guest_agent.0
+                      path: '{{.VmStateDir}}/qga.sock'
+                graphics:
+                    - type: spice
+                      autoport: "yes"
+                      listen: 127.0.0.1
+                video:
+                    - model: virtio
+                      heads: 1
+                      accel3d: false
+
+check-preempt-vm-live:
+    pod:
+        image: check-preempt-fixture
+        disposable: true
+        lifecycle: dev
+        description: >-
+            R10 witness of LIVE resource preemption on a VM-VENUE holder — the sibling of check-preempt-live-pod's pod-venue proof, covering candy/plugin-preempt/holder_dispatch.go's pluginHolderStop/pluginHolderStart addr.Vm!="" branch (stopVMPlugin/startVMPlugin dispatched via sdk.Executor.InvokeProvider(ClassVerb,"libvirt",…), never a host-side reverse-RPC callback). A BENIGN check-preempt-fixture bed-root witness carries no arbiter fields — the root must survive the check-live/check-live-rebuild phases, which the unroll's first cut failed by promoting the preempted holder VM to root (the taker's re-bring-up acquire stopped the root VM and check-live-rebuild hung against it); the VM: HOLDER stays a MEMBER (preempt-vm-holder, `from: web-vm`, preemptible: holds:[vm-test-lock]); the pod: CLAIMANT preempt-vm-taker is a member (requires_exclusive:[vm-test-lock], a DISTINCT token from the pod-venue beds' arbiter-test-lock/live-test-lock so concurrent bed runs never contend for the same resource); sortedMemberKeys brings the vm holder up FIRST, then the taker, whose own `charly start` fires AcquireExclusive → the arbiter finds the RUNNING vm holder → stopHolders → pluginHolderStop gracefully shuts the VM down (libvirt) and polls (kit.ReadinessProvider()-gated) until it is actually stopped → records a persistent lease. preemptor-vm-lease-recorded asserts `charly preempt status` surfaces the taker's vm-test-lock lease; preemptor-vm-stopped-the-holder asserts the vm holder is recorded as a preempted (stopped) holder. ZERO GPU (vm-test-lock is selector-less, applyMode skips the flip on every host); the GPU switchMode/ensureCDI InvokeProvider path stays code-verified only (no disposable bed here can allocate a real GPU token). On teardown the taker's `charly remove` → releaseResourceClaim → restoreHolders restarts the VM.
+    preempt-vm-holder:
+        vm:
+            from: web-vm
+            preemptible:
+                holds:
+                    - vm-test-lock
+                restore: always
+    preempt-vm-taker:
+        pod:
+            image: check-preempt-fixture
+            requires_exclusive:
+                - vm-test-lock
+            plan:
+                - check: the CLAIMANT member's exclusive vm-test-lock lease was recorded — preempt-vm-taker's own `charly start` (a group member, NOT the bed root) fired AcquireExclusive through the externalized verb:arbiter, and the persistent lease surfaces via `charly preempt status`
+                  id: preemptor-vm-lease-recorded
+                  context:
+                    - runtime
+                  eventually: 60s
+                  retry_interval: 3s
+                  command:
+                    command: "${CHARLY_BIN} preempt status"
+                    in_container: false
+                  stdout:
+                    - contains: preempt-vm-taker
+                    - contains: vm-test-lock
+                - check: the RUNNING preemptible VM holder was actually preempted — the arbiter recorded preempt-vm-holder as a stopped holder under the taker's lease (holdersToStop → stopHolders → pluginHolderStop's libvirt stop+wait), visible in the PREEMPTED HOLDERS column of `charly preempt status`
+                  id: preemptor-vm-stopped-the-holder
+                  context:
+                    - runtime
+                  eventually: 60s
+                  retry_interval: 3s
+                  command:
+                    command: "${CHARLY_BIN} preempt status"
+                    in_container: false
+                  stdout:
+                    - contains: preempt-vm-holder
 check-preempt-app:
     local:
         description: |-
