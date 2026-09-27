@@ -26,6 +26,7 @@ package preempt
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -35,22 +36,25 @@ import (
 	"github.com/opencharly/spec/spec"
 )
 
+//go:embed schema/*.cue
+var schemaFS embed.FS
+
 const calver = "2026.183.0000"
 
 // NewProvider returns the arbiter+command provider for in-proc registration or out-of-proc serving.
 func NewProvider() pb.ProviderServer { return &provider{} }
 
 // NewMeta advertises verb:arbiter (dispatched host-side via the in-core proxy, no authored
-// plugin_input → no InputDef) + command:preempt (pass-through CLI args → no InputDef), plus
-// the self-contained #PreemptPlugin schema (via sdk.NewMeta → BuildCapabilities) that
-// satisfies the non-empty-schema load gate.
+// plugin_input → no structured InputDef) + command:preempt (pass-through CLI args → no
+// InputDef), plus this plugin's OWN self-contained #PreemptPlugin schema (schema/preempt.cue,
+// via sdk.NewMeta → BuildCapabilities) served over Describe — there is NO schema-less plugin.
 func NewMeta() pb.PluginMetaServer {
 	return sdk.NewMeta(calver,
 		[]sdk.ProvidedCapability{
 			{Class: "verb", Word: "arbiter"},
 			{Class: "command", Word: "preempt"},
 		},
-		nil)
+		schemaFS)
 }
 
 // CliMain is the OUT-OF-PROCESS command-dispatch entry (only reached when preempt is NOT compiled in).
