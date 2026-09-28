@@ -13,7 +13,6 @@
 # fixture box `check-preempt-fixture` is declared locally so the repo is
 # self-contained — the plugin-mise bed-image pattern — since the preempt beds only
 # need a STEADY-STATE pod, which the keepalive candy provides).
-version: 2026.249.2125
 defaults:
     platform:
         - linux/amd64
@@ -27,7 +26,6 @@ defaults:
 discover:
     - path: candy
       recursive: true
-
 # check-preempt-fixture — the beds' own minimal steady-state pod fixture (a LOCAL
 # layer + a thin image, the plugin-mise bed-image pattern). The preempt beds need
 # only a live pod to hold a synthetic selector-less lock, so the fixture composes
@@ -36,7 +34,6 @@ discover:
 # supplies a keepalive program inline.
 check-preempt-keepalive:
     candy:
-        version: 2026.265.0000
         description: |-
             Local keepalive layer for the arbiter bed fixture: pins the current
             layer-supervisord and runs a `sleep infinity` program so a service-less
@@ -53,7 +50,6 @@ check-preempt-keepalive:
                 file: /etc/supervisord.conf
                 contains:
                     - "[program:keepalive]"
-
 check-preempt-fixture:
     candy:
         base: quay.io/fedora/fedora:43
@@ -73,7 +69,6 @@ check-preempt-fixture:
               file:
                 file: /usr/bin/supervisord
                 exists: true
-
 check-preempt-arbiter-pod:
     pod:
         image: check-preempt-fixture
@@ -258,7 +253,6 @@ web-vm:
                     - model: virtio
                       heads: 1
                       accel3d: false
-
 check-preempt-vm-live:
     pod:
         image: check-preempt-fixture
