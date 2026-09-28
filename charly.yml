@@ -13,7 +13,6 @@
 # fixture box `check-preempt-fixture` is declared locally so the repo is
 # self-contained — the plugin-mise bed-image pattern — since the preempt beds only
 # need a STEADY-STATE pod, which the keepalive candy provides).
-version: 2026.249.2125
 defaults:
     platform:
         - linux/amd64
@@ -36,7 +35,6 @@ discover:
 # supplies a keepalive program inline.
 check-preempt-keepalive:
     candy:
-        version: 2026.265.0000
         description: |-
             Local keepalive layer for the arbiter bed fixture: pins the current
             layer-supervisord and runs a `sleep infinity` program so a service-less
