@@ -1,7 +1,5 @@
-version: 2026.232.0520
 plugin-preempt:
     candy:
-        version: 2026.183.0000
         description: |-
             COMPILED-IN charly plugin owning the RESOURCE ARBITER (cutover C9) — the final
             core-externalization cutover. It serves TWO capabilities:
