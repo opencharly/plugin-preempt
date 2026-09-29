@@ -67,7 +67,7 @@ func TestPluginHolderStart_DepartedHolderIsNoOp(t *testing.T) {
 		Base:     "preempt-departed-holder-probe-does-not-exist",
 		Instance: "",
 	}
-	if pluginHolderExists(addr) {
+	if pluginHolderExists(context.Background(), addr) {
 		t.Fatalf("test precondition: holder %q must not exist", addr.Name)
 	}
 	var startErr error
