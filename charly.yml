@@ -40,7 +40,7 @@ check-preempt-keepalive:
             layer-supervisord and runs a `sleep infinity` program so a service-less
             pod assembles /etc/supervisord.conf and reaches steady-state.
         candy:
-            - '@github.com/opencharly/layer-supervisord:v2026.240.0121'
+            - '@github.com/opencharly/layer-supervisord:v2026.271.1817'
         service:
             - name: keepalive
               exec: /usr/bin/sleep infinity
