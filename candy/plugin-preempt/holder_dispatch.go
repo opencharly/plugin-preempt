@@ -49,7 +49,7 @@ func pluginHolderRunning(ctx context.Context, exec *sdk.Executor, addr spec.Hold
 	if addr.Vm != "" {
 		return vmRunning(ctx, exec, vmDomainName(addr))
 	}
-	return podRunning(addr.Base, addr.Instance)
+	return podRunning(ctx, addr.Base, addr.Instance)
 }
 
 // pluginHolderStop gracefully stops addr's deployment AND WAITS until it is actually powered off
@@ -61,7 +61,7 @@ func pluginHolderStop(ctx context.Context, exec *sdk.Executor, addr spec.HolderA
 	if addr.Vm != "" {
 		stopErr = stopVMPlugin(ctx, exec, vmDomainName(addr), false)
 	} else {
-		stopErr = deploykit.StopPodService(addr.Base, addr.Instance)
+		stopErr = deploykit.StopPodService(ctx, addr.Base, addr.Instance)
 	}
 	if stopErr != nil {
 		return stopErr
@@ -106,11 +106,11 @@ func pluginHolderStart(ctx context.Context, exec *sdk.Executor, addr spec.Holder
 		}
 		return err
 	}
-	if !pluginHolderExists(addr) {
+	if !pluginHolderExists(ctx, addr) {
 		fmt.Fprintf(os.Stderr, "preempt: holder %q has departed (no container/quadlet) — nothing to restore, freeing its lease\n", addr.Name)
 		return nil
 	}
-	return deploykit.StartPodService(addr.Base, addr.Instance)
+	return deploykit.StartPodService(ctx, addr.Base, addr.Instance)
 }
 
 // isDomainNotFoundErr reports whether err is candy/plugin-vm's provider.go reply for a missing
@@ -125,13 +125,13 @@ func isDomainNotFoundErr(err error) bool {
 // pluginHolderExists reports whether a POD holder's runtime object (container/quadlet) still
 // exists — the pod-venue departed-holder guard (see pluginHolderStart's doc comment for why the
 // VM venue folds this detection into its start RPC's error instead of a separate pre-check).
-func pluginHolderExists(addr spec.HolderAddr) bool {
+func pluginHolderExists(ctx context.Context, addr spec.HolderAddr) bool {
 	if active, _ := kit.QuadletExistsInstance(addr.Base, addr.Instance); active {
 		return true
 	}
 	engine := "podman"
 	if rt, err := kit.ResolveRuntime(); err == nil {
-		engine = kit.EngineBinary(deploykit.ResolveBoxEngineForDeploy(addr.Base, addr.Instance, rt.RunEngine))
+		engine = kit.EngineBinary(deploykit.ResolveBoxEngineForDeploy(ctx, addr.Base, addr.Instance, rt.RunEngine))
 	}
 	return exec2Command(engine, "container", "exists", kit.ContainerNameInstance(addr.Base, addr.Instance)) == nil
 }
@@ -314,7 +314,7 @@ func vmDirPlugin() (string, error) {
 // podRunning reports whether a pod deployment is up (the quadlet service when one exists, else
 // the container's runtime state) — the plugin-side twin of the deleted charly/preempt.go's
 // podIsRunning.
-func podRunning(base, instance string) bool {
+func podRunning(ctx context.Context, base, instance string) bool {
 	if active, _ := kit.QuadletExistsInstance(base, instance); active {
 		svc := kit.ServiceNameInstance(base, instance)
 		out, _ := exec.Command("systemctl", "--user", "is-active", svc).Output()
@@ -322,7 +322,7 @@ func podRunning(base, instance string) bool {
 	}
 	engine := "podman"
 	if rt, err := kit.ResolveRuntime(); err == nil {
-		engine = kit.EngineBinary(deploykit.ResolveBoxEngineForDeploy(base, instance, rt.RunEngine))
+		engine = kit.EngineBinary(deploykit.ResolveBoxEngineForDeploy(ctx, base, instance, rt.RunEngine))
 	}
 	name := kit.ContainerNameInstance(base, instance)
 	out, err := exec.Command(engine, "inspect", "--format", "{{.State.Running}}", name).CombinedOutput()
